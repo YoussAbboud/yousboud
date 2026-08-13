@@ -83,6 +83,10 @@
     letter-spacing: 0.11em;
     dominant-baseline: middle;
     opacity: 0.8;
+    /* Halo drawn behind the glyphs so an edge never runs through a label. */
+    stroke: #ffffff;
+    stroke-width: 3;
+    paint-order: stroke;
   }
   .label .tag {
     font-size: 9.5px;
@@ -120,6 +124,7 @@
     position: fixed;
     z-index: 2;
     width: 268px;
+    max-width: calc(100vw - 28px);
     padding: 15px 17px 17px;
     background: #ffffff;
     border: 1px solid #e4e4e4;
@@ -172,7 +177,7 @@
 
   /* ---- compact ---- */
   #graph.compact .dendrites { display: none; }
-  #graph.compact .label { font-size: 11px; letter-spacing: 0.09em; }
+  #graph.compact .label { font-size: 10.5px; letter-spacing: 0.07em; }
   #graph.compact .hub-label { font-size: 11px; letter-spacing: 0.08em; }
 </style>
 </head>
@@ -303,7 +308,12 @@ function layout() {
   compact = w < 640;
   cx = hx = w / 2;
   cy = hy = h / 2;
-  R = Math.max(96, Math.min(Math.min(w, h) * 0.30, 300));
+  /* Compact labels sit below their node, so the ring opens up to keep them
+     clear of the hub; wide layouts keep a width term so outward labels have
+     somewhere to go on narrow-but-not-compact windows. */
+  R = compact
+    ? Math.min(w * 0.42, h * 0.30)
+    : Math.max(96, Math.min(w * 0.27, h * 0.30, 300));
   nodeR = compact ? 13 : 18;
   coreR = compact ? 26 : 34;
   for (const n of nodes) {
@@ -349,11 +359,15 @@ function build() {
     n.pulse = el("circle", { class: "pulse", r: 2.5, opacity: 0 });
     gPulses.appendChild(n.pulse);
 
+    const hint = n.p.kind === "exe" ? "Windows download"
+      : n.p.kind === "web" ? "web app" : "coming soon";
     const g = el("g", {
       class: "node " + n.p.kind,
       tabindex: "0",
       role: "button",
-      "aria-label": n.p.name
+      "aria-label": `${n.p.name} — ${hint}`,
+      "aria-haspopup": "dialog",
+      "aria-expanded": "false"
     });
     const t = el("title");
     t.textContent = n.p.name;
@@ -423,17 +437,30 @@ function place() {
     n.hit.setAttribute("r", nodeR + 14);
 
     const c = Math.cos(n.angle), s = Math.sin(n.angle);
+    let lx;
     if (compact) {
-      n.label.setAttribute("x", 0);
+      lx = 0;
       n.label.setAttribute("y", nodeR + 15);
       n.label.setAttribute("text-anchor", "middle");
     } else {
       const vertical = Math.abs(c) < 0.35;
       const pad = nodeR + (vertical ? 20 : 14);
-      n.label.setAttribute("x", (c * pad).toFixed(1));
+      lx = c * pad;
       n.label.setAttribute("y", (s * pad).toFixed(1));
       n.label.setAttribute("text-anchor", vertical ? "middle" : (c > 0 ? "start" : "end"));
     }
+    n.label.setAttribute("x", lx.toFixed(1));
+
+    /* Nudge a label that would run off-screen back inside. getBBox accounts
+       for the text anchor; measured once per layout, never in the frame loop. */
+    const M = 12, vw = window.innerWidth;
+    const bb = n.label.getBBox();
+    const l = n.x + bb.x, r = l + bb.width;
+    let shift = 0;
+    if (bb.width > vw - 2 * M) shift = vw / 2 - (l + bb.width / 2);
+    else if (l < M) shift = M - l;
+    else if (r > vw - M) shift = vw - M - r;
+    if (shift) n.label.setAttribute("x", (lx + shift).toFixed(1));
   }
   paint();
 }
@@ -605,18 +632,27 @@ function fillCard(p) {
 }
 
 /* Anchored beside the node, on the opposite side from its label so the label
-   stays readable, and flipped again if that side would overflow. */
+   stays readable, and flipped again if that side would overflow. Narrow
+   screens have no room to sit beside anything, so the card goes above or
+   below the node instead. */
 function positionCard(n) {
   const M = 14;
   const gap = nodeR + 22;
   const w = card.offsetWidth, h = card.offsetHeight;
-  const toLeft = !compact && Math.cos(n.angle) > 0;
+  let left, top;
 
-  let left = toLeft ? n.px - gap - w : n.px + gap;
-  if (toLeft ? left < M : left + w > window.innerWidth - M) {
-    left = toLeft ? n.px + gap : n.px - gap - w;
+  if (compact) {
+    left = (window.innerWidth - w) / 2;
+    const below = n.py + gap;
+    top = below + h < window.innerHeight - M ? below : n.py - gap - h;
+  } else {
+    const toLeft = Math.cos(n.angle) > 0;
+    left = toLeft ? n.px - gap - w : n.px + gap;
+    if (toLeft ? left < M : left + w > window.innerWidth - M) {
+      left = toLeft ? n.px + gap : n.px - gap - w;
+    }
+    top = n.py - h / 2;
   }
-  let top = n.py - h / 2;
 
   left = Math.max(M, Math.min(left, window.innerWidth - w - M));
   top = Math.max(M, Math.min(top, window.innerHeight - h - M));
@@ -626,10 +662,12 @@ function positionCard(n) {
 
 function openCard(n) {
   if (opened === n) { closeCard(); return; }
+  if (opened) opened.g.setAttribute("aria-expanded", "false");
   opened = n;
   fillCard(n.p);
   card.hidden = false;
   positionCard(n);
+  n.g.setAttribute("aria-expanded", "true");
   refresh();
   (card.querySelector(".btn:not(.off)") || card).focus();
 }
@@ -640,6 +678,7 @@ function closeCard() {
   opened = null;
   const hadFocus = card.contains(document.activeElement);
   card.hidden = true;
+  n.g.setAttribute("aria-expanded", "false");
   refresh();
   if (hadFocus) n.g.focus();
 }
