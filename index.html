@@ -112,6 +112,61 @@
   .node.on .dot { stroke-width: 1.8; }
   .node.on .label { opacity: 1; }
 
+  /* ---- card ---- */
+  .card {
+    position: fixed;
+    z-index: 2;
+    width: 268px;
+    padding: 15px 17px 17px;
+    background: #ffffff;
+    border: 1px solid #e4e4e4;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.07), 0 2px 6px rgba(0, 0, 0, 0.04);
+    outline: none;
+  }
+  .card h2 {
+    margin: 0 0 7px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+  }
+  .card .tagline {
+    margin: 0 0 13px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: #4a4a4a;
+  }
+  .card dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 14px;
+    margin: 0 0 14px;
+    font-size: 11px;
+  }
+  .card dt { color: #6a6a6a; letter-spacing: 0.1em; }
+  .card dd { margin: 0; color: #222222; letter-spacing: 0.03em; }
+  .card .status { margin: 0; font-size: 12px; color: #5a5a5a; letter-spacing: 0.04em; }
+  .btn {
+    display: block;
+    padding: 9px 12px;
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: #ffffff;
+    font: inherit;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-align: center;
+    text-decoration: none;
+    transition: background 140ms ease, color 140ms ease;
+  }
+  .btn:hover { background: #ffffff; color: var(--ink); }
+  .btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .btn.off {
+    background: #ffffff;
+    color: #6a6a6a;
+    border-color: #dcdcdc;
+    cursor: default;
+  }
+
   /* ---- compact ---- */
   #graph.compact .dendrites { display: none; }
   #graph.compact .label { font-size: 11px; letter-spacing: 0.09em; }
@@ -124,6 +179,13 @@
   <g id="edges"></g>
   <g id="nodes"></g>
 </svg>
+
+<div id="card" class="card" role="dialog" aria-labelledby="card-name" aria-describedby="card-tagline" tabindex="-1" hidden>
+  <h2 id="card-name"></h2>
+  <p id="card-tagline" class="tagline"></p>
+  <dl id="card-meta"></dl>
+  <div id="card-action"></div>
+</div>
 
 <script>
 /* Edit this array to add or update a project — nothing else needs to change.
@@ -325,6 +387,10 @@ function build() {
     g.addEventListener("pointerleave", () => { if (hovered === n) hovered = null; refresh(); });
     g.addEventListener("focus", () => { focused = n; refresh(); });
     g.addEventListener("blur", () => { if (focused === n) focused = null; refresh(); });
+    g.addEventListener("click", () => openCard(n));
+    g.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openCard(n); }
+    });
   }
 }
 
@@ -388,10 +454,10 @@ function tick(now) {
 
 /* ---- hover / focus ---- */
 
-let hovered = null, focused = null;
+let hovered = null, focused = null, opened = null;
 
 function refresh() {
-  const active = focused || hovered;
+  const active = opened || focused || hovered;
   svg.classList.toggle("sel", !!active);
   for (const n of nodes) {
     const on = n === active;
@@ -402,10 +468,116 @@ function refresh() {
   kick();
 }
 
+/* ---- detail card ---- */
+
+const card = document.getElementById("card");
+const cardName = document.getElementById("card-name");
+const cardTagline = document.getElementById("card-tagline");
+const cardMeta = document.getElementById("card-meta");
+const cardAction = document.getElementById("card-action");
+
+function fillCard(p) {
+  cardName.textContent = p.name;
+  cardTagline.textContent = p.tagline;
+
+  /* Empty fields are omitted rather than printed as "n/a". */
+  cardMeta.textContent = "";
+  const rows = p.kind === "web" ? [["updated", p.updated]]
+    : [["version", p.version], ["size", p.size], ["updated", p.updated]];
+  for (const [key, value] of rows) {
+    if (!value) continue;
+    const dt = document.createElement("dt");
+    dt.textContent = key;
+    const dd = document.createElement("dd");
+    dd.textContent = value;
+    cardMeta.append(dt, dd);
+  }
+  cardMeta.hidden = !cardMeta.children.length;
+
+  cardAction.textContent = "";
+  if (p.kind === "soon") {
+    const note = document.createElement("p");
+    note.className = "status";
+    note.textContent = "In development.";
+    cardAction.append(note);
+  } else if (!p.url) {
+    const off = document.createElement("span");
+    off.className = "btn off";
+    off.textContent = "link coming";
+    cardAction.append(off);
+  } else {
+    const a = document.createElement("a");
+    a.className = "btn";
+    a.href = p.url;
+    if (p.kind === "exe") {
+      a.setAttribute("download", "");
+      a.textContent = "Download .exe";
+    } else {
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.textContent = "Open app";
+    }
+    cardAction.append(a);
+  }
+}
+
+/* Anchored beside the node, on the opposite side from its label so the label
+   stays readable, and flipped again if that side would overflow. */
+function positionCard(n) {
+  const M = 14;
+  const gap = nodeR + 22;
+  const w = card.offsetWidth, h = card.offsetHeight;
+  const toLeft = !compact && Math.cos(n.angle) > 0;
+
+  let left = toLeft ? n.px - gap - w : n.px + gap;
+  if (toLeft ? left < M : left + w > window.innerWidth - M) {
+    left = toLeft ? n.px + gap : n.px - gap - w;
+  }
+  let top = n.py - h / 2;
+
+  left = Math.max(M, Math.min(left, window.innerWidth - w - M));
+  top = Math.max(M, Math.min(top, window.innerHeight - h - M));
+  card.style.left = left + "px";
+  card.style.top = top + "px";
+}
+
+function openCard(n) {
+  if (opened === n) { closeCard(); return; }
+  opened = n;
+  fillCard(n.p);
+  card.hidden = false;
+  positionCard(n);
+  refresh();
+  (card.querySelector(".btn:not(.off)") || card).focus();
+}
+
+function closeCard() {
+  if (!opened) return;
+  const n = opened;
+  opened = null;
+  const hadFocus = card.contains(document.activeElement);
+  card.hidden = true;
+  refresh();
+  if (hadFocus) n.g.focus();
+}
+
+document.addEventListener("pointerdown", (e) => {
+  if (card.contains(e.target) || e.target.closest(".node")) return;
+  closeCard();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeCard();
+});
+
 let resizeTimer;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { layout(); place(); }, 120);
+  resizeTimer = setTimeout(() => {
+    layout();
+    place();
+    if (opened) positionCard(opened);
+  }, 120);
 });
 
 layout();
