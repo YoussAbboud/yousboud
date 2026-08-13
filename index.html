@@ -99,6 +99,9 @@
   }
   .dend-tip { fill: var(--ink); opacity: 0.3; }
 
+  /* ---- signal pulses ---- */
+  .pulse { fill: var(--ink); pointer-events: none; }
+
   /* ---- active / dimmed ---- */
   .node, .hub, .label { transition: opacity 180ms ease; }
   .edge { transition: opacity 180ms ease, stroke 180ms ease, stroke-width 180ms ease; }
@@ -177,6 +180,7 @@
 
 <svg id="graph" role="group" aria-label="Youss — project map" xmlns="http://www.w3.org/2000/svg">
   <g id="edges"></g>
+  <g id="pulses" aria-hidden="true"></g>
   <g id="nodes"></g>
 </svg>
 
@@ -237,9 +241,14 @@ const PROJECTS = [
 /* ------------------------------------------------------------------ */
 
 const NS = "http://www.w3.org/2000/svg";
+const TAU = Math.PI * 2;
 const svg = document.getElementById("graph");
 const gEdges = document.getElementById("edges");
+const gPulses = document.getElementById("pulses");
 const gNodes = document.getElementById("nodes");
+
+const motionQuery = matchMedia("(prefers-reduced-motion: reduce)");
+let reduced = motionQuery.matches;
 
 const el = (tag, attrs) => {
   const n = document.createElementNS(NS, tag);
@@ -278,17 +287,22 @@ const nodes = PROJECTS.map((p, i) => {
       curl: (rnd() - 0.5) * 0.9
     });
   }
-  return { p, angle, rScale, bow, stubs, x: 0, y: 0 };
+  /* Two slow sines on different periods = a wander, not a circle. */
+  const drift = {
+    xPh: rnd() * TAU, xPer: 5200 + rnd() * 4200, xAmp: 2 + rnd() * 1.8,
+    yPh: rnd() * TAU, yPer: 6100 + rnd() * 5200, yAmp: 1.6 + rnd() * 1.6
+  };
+  return { p, angle, rScale, bow, stubs, drift, x: 0, y: 0, pulseAt: null };
 });
 
 const DEND_R = 18;
-let cx = 0, cy = 0, R = 0, nodeR = 18, coreR = 34, compact = false;
+let cx = 0, cy = 0, hx = 0, hy = 0, R = 0, nodeR = 18, coreR = 34, compact = false;
 
 function layout() {
   const w = window.innerWidth, h = window.innerHeight;
   compact = w < 640;
-  cx = w / 2;
-  cy = h / 2;
+  cx = hx = w / 2;
+  cy = hy = h / 2;
   R = Math.max(96, Math.min(Math.min(w, h) * 0.30, 300));
   nodeR = compact ? 13 : 18;
   coreR = compact ? 26 : 34;
@@ -305,14 +319,14 @@ function layout() {
 /* Quadratic bezier from centre to node, bowed sideways so it reads organic.
    Caches the control point so pulses can ride the same curve. */
 function edgePath(n) {
-  const dx = n.px - cx, dy = n.py - cy;
+  const dx = n.px - hx, dy = n.py - hy;
   const dist = Math.hypot(dx, dy) || 1;
   const off = dist * n.bow;
-  const qx = cx + dx / 2 + (-dy / dist) * off;
-  const qy = cy + dy / 2 + (dx / dist) * off;
+  const qx = hx + dx / 2 + (-dy / dist) * off;
+  const qy = hy + dy / 2 + (dx / dist) * off;
   n.qx = qx;
   n.qy = qy;
-  return `M${cx.toFixed(1)},${cy.toFixed(1)} Q${qx.toFixed(1)},${qy.toFixed(1)} ${n.px.toFixed(1)},${n.py.toFixed(1)}`;
+  return `M${hx.toFixed(1)},${hy.toFixed(1)} Q${qx.toFixed(1)},${qy.toFixed(1)} ${n.px.toFixed(1)},${n.py.toFixed(1)}`;
 }
 
 let hub, hubDot;
@@ -326,9 +340,14 @@ function build() {
   hub.appendChild(hl);
   gNodes.appendChild(hub);
 
+  hub.addEventListener("pointerenter", pulseAll);
+
   for (const n of nodes) {
     n.edge = el("path", { class: "edge" + (n.p.kind === "soon" ? " dashed" : "") });
     gEdges.appendChild(n.edge);
+
+    n.pulse = el("circle", { class: "pulse", r: 2.5, opacity: 0 });
+    gPulses.appendChild(n.pulse);
 
     const g = el("g", {
       class: "node " + n.p.kind,
@@ -429,14 +448,43 @@ function paint() {
   }
 }
 
-/* Frame loop, suspended whenever nothing is actually moving. */
+/* A dot riding one edge outward from the hub: the neural flourish. */
+const PULSE_MS = 900;
+let nextPulse = 0;
+
+function pulseAll() {
+  if (reduced) return;
+  const t = performance.now();
+  for (const n of nodes) n.pulseAt = t;
+  kick();
+}
+
+function drawPulses(now) {
+  for (const n of nodes) {
+    if (n.pulseAt === null) continue;
+    const u = (now - n.pulseAt) / PULSE_MS;
+    if (u >= 1) {
+      n.pulseAt = null;
+      n.pulse.setAttribute("opacity", 0);
+      continue;
+    }
+    const e = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+    const m = 1 - e;
+    const dim = active && n !== active ? 0.3 : 1;
+    n.pulse.setAttribute("cx", (m * m * hx + 2 * m * e * n.qx + e * e * n.px).toFixed(1));
+    n.pulse.setAttribute("cy", (m * m * hy + 2 * m * e * n.qy + e * e * n.py).toFixed(1));
+    n.pulse.setAttribute("opacity", (Math.sin(Math.PI * u) * dim).toFixed(2));
+  }
+}
+
+/* One frame loop for everything; suspended when nothing is moving. */
 let raf = 0, last = 0;
 function kick() { if (!raf) { last = 0; raf = requestAnimationFrame(tick); } }
 
 function tick(now) {
   const dt = last ? Math.min(now - last, 64) : 16;
   last = now;
-  let busy = false;
+  let busy = !reduced;
 
   const ease = 1 - Math.exp(-dt / 55);   // ~180ms to settle
   for (const n of nodes) {
@@ -446,18 +494,53 @@ function tick(now) {
     } else {
       n.scale = n.scaleTo;
     }
+    if (!reduced) {
+      const d = n.drift;
+      n.px = n.x + Math.sin((now / d.xPer) * TAU + d.xPh) * d.xAmp;
+      n.py = n.y + Math.sin((now / d.yPer) * TAU + d.yPh) * d.yAmp;
+    }
+  }
+
+  if (!reduced) {
+    hx = cx + Math.sin((now / 8300) * TAU) * 1.2;
+    hy = cy + Math.sin((now / 9700) * TAU + 1.1) * 1.2;
+    hub.setAttribute("transform", `translate(${hx.toFixed(1)},${hy.toFixed(1)})`);
+    if (!nextPulse) nextPulse = now + 1600;
+    if (now >= nextPulse) {
+      nodes[Math.floor(Math.random() * nodes.length)].pulseAt = now;
+      nextPulse = now + 2400 + Math.random() * 3200;
+    }
   }
 
   paint();
+  drawPulses(now);
   raf = busy ? requestAnimationFrame(tick) : 0;
 }
 
+function applyMotionPref() {
+  reduced = motionQuery.matches;
+  if (reduced) {
+    for (const n of nodes) {
+      n.px = n.x;
+      n.py = n.y;
+      n.pulseAt = null;
+      n.pulse.setAttribute("opacity", 0);
+    }
+    hx = cx;
+    hy = cy;
+    hub.setAttribute("transform", `translate(${cx},${cy})`);
+    paint();
+  }
+  kick();
+}
+motionQuery.addEventListener("change", applyMotionPref);
+
 /* ---- hover / focus ---- */
 
-let hovered = null, focused = null, opened = null;
+let hovered = null, focused = null, opened = null, active = null;
 
 function refresh() {
-  const active = opened || focused || hovered;
+  active = opened || focused || hovered;
   svg.classList.toggle("sel", !!active);
   for (const n of nodes) {
     const on = n === active;
@@ -583,6 +666,7 @@ window.addEventListener("resize", () => {
 layout();
 build();
 place();
+kick();
 </script>
 </body>
 </html>
