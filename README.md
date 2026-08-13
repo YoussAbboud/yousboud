@@ -44,8 +44,50 @@ Adding a fifth project just works — nodes are distributed around the circle fr
 the array length. Order in the array sets the order around the graph, going
 clockwise from the upper right.
 
+## Hosting the installers
+
 **Don't commit the `.exe` files to this repo.** They belong on GitHub Releases;
 this page only links out to them. The whole deployment should stay a few KB.
+
+To publish an installer:
+
+1. Go to the repo → **Releases** → **Draft a new release**.
+2. Create a tag (`v1.0.0`), give it a title.
+3. Drag the `.exe` into the **Attach binaries** box at the bottom. Wait for the
+   upload to finish.
+4. **Publish release.**
+5. Right-click the uploaded asset → **Copy link address**, and paste that into
+   the project's `url`.
+
+The URL looks like this, and is a direct download:
+
+```
+https://github.com/YoussAbboud/yousboud/releases/download/v1.0.0/Debloat-Setup.exe
+```
+
+Or use the `latest` alias, which always resolves to the newest published
+release — then you never have to touch `PROJECTS` again when you ship a new
+version, as long as the filename stays the same:
+
+```
+https://github.com/YoussAbboud/yousboud/releases/latest/download/Debloat-Setup.exe
+```
+
+Worth knowing:
+
+- **The download is forced by GitHub, not by this page.** That URL redirects to
+  a CDN that sends `Content-Disposition: attachment`, so the browser saves the
+  file instead of navigating to it. The `download` attribute on the button does
+  not do this — browsers ignore it on cross-origin links — so don't drop it and
+  assume something else will pick up the slack.
+- **The repo must stay public**, or the asset 404s for anyone not signed in.
+- Assets can be up to 2 GB each — far past anything a normal installer needs.
+- Releases can live in a different repo than this site. If you'd rather keep
+  each project's installer in its own repo, just point `url` there.
+- Expect the browser to warn about an unsigned `.exe` ("Windows protected your
+  PC"). That's SmartScreen reacting to a new, unsigned binary, not a problem
+  with the link. It goes away with a code-signing certificate, or your friends
+  can click *More info → Run anyway*.
 
 ## Deploying
 
