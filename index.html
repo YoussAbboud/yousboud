@@ -14,166 +14,89 @@
     --label: #262626;
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
   }
-
   * { box-sizing: border-box; }
-
   html, body {
-    margin: 0;
-    height: 100%;
-    background: #ffffff;
-    overflow: hidden;
-    font-family: var(--font);
-    color: var(--ink);
-    -webkit-font-smoothing: antialiased;
+    margin: 0; height: 100%; overflow: hidden;
+    background: #ffffff; color: var(--ink);
+    font-family: var(--font); -webkit-font-smoothing: antialiased;
   }
-
-  #graph {
-    position: fixed;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    display: block;
-  }
+  #graph { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 
   /* ---- edges ---- */
-  .edge {
-    fill: none;
-    stroke: var(--edge);
-    stroke-width: 1.25;
-    stroke-linecap: round;
-  }
+  .edge { fill: none; stroke: var(--edge); stroke-width: 1.25; stroke-linecap: round; }
   .edge.dashed { stroke-dasharray: 4 5; }
 
-  /* ---- center ---- */
+  /* ---- centre ---- */
   .hub { cursor: default; }
   .hub-dot { fill: var(--ink); }
   .hub-label {
-    fill: #ffffff;
-    font-size: 13px;
-    letter-spacing: 0.1em;
-    text-anchor: middle;
-    dominant-baseline: middle;
+    fill: #ffffff; font-size: 13px; letter-spacing: 0.1em;
+    text-anchor: middle; dominant-baseline: middle;
   }
 
   /* ---- project nodes ---- */
   .node { outline: none; cursor: pointer; }
   .hit { fill: transparent; pointer-events: all; }
   .dendrites { pointer-events: none; }
-  .node .dot {
-    fill: #ffffff;
-    stroke: var(--ink);
-    stroke-width: 1.5;
-  }
+  .node .dot { fill: #ffffff; stroke: var(--ink); stroke-width: 1.5; }
   .ring {
-    fill: none;
-    stroke: var(--ink);
-    stroke-width: 1.25;
-    opacity: 0;
-    transition: opacity 140ms ease;
+    fill: none; stroke: var(--ink); stroke-width: 1.25;
+    opacity: 0; transition: opacity 140ms ease;
   }
   .node:focus-visible .ring { opacity: 1; }
   .node.soon .dot { stroke-dasharray: 3 3.5; }
-  .node.soon .dot,
-  .node.soon .dendrites { opacity: 0.5; }
+  .node.soon .dot, .node.soon .dendrites { opacity: 0.5; }
   .node.soon .label { opacity: 0.68; }   /* dimmed but still AA on white */
 
   .label {
-    fill: var(--label);
-    font-size: 12.5px;
-    letter-spacing: 0.11em;
-    dominant-baseline: middle;
-    opacity: 0.8;
+    fill: var(--label); font-size: 12.5px; letter-spacing: 0.11em;
+    dominant-baseline: middle; opacity: 0.8;
     /* Halo drawn behind the glyphs so an edge never runs through a label. */
-    stroke: #ffffff;
-    stroke-width: 3;
-    paint-order: stroke;
+    stroke: #ffffff; stroke-width: 3; paint-order: stroke;
   }
-  .label .tag {
-    font-size: 9.5px;
-    letter-spacing: 0.16em;
-  }
+  .label .tag { font-size: 9.5px; letter-spacing: 0.16em; }
 
-  /* ---- dendrites ---- */
-  .dend {
-    fill: none;
-    stroke: var(--ink);
-    stroke-width: 1;
-    stroke-linecap: round;
-    opacity: 0.3;
-  }
+  /* ---- dendrites and pulses ---- */
+  .dend { fill: none; stroke: var(--ink); stroke-width: 1; stroke-linecap: round; opacity: 0.3; }
   .dend-tip { fill: var(--ink); opacity: 0.3; }
-
-  /* ---- signal pulses ---- */
   .pulse { fill: var(--ink); pointer-events: none; }
 
   /* ---- active / dimmed ---- */
   .node, .hub, .label { transition: opacity 180ms ease; }
   .edge { transition: opacity 180ms ease, stroke 180ms ease, stroke-width 180ms ease; }
   .dot { transition: stroke-width 180ms ease; }
-
   /* The hub stays solid — it is one end of whichever branch is active. */
-  #graph.sel .node:not(.on),
-  #graph.sel .edge:not(.on) { opacity: 0.35; }
-
+  #graph.sel .node:not(.on), #graph.sel .edge:not(.on) { opacity: 0.35; }
   .edge.on { stroke: var(--ink); stroke-width: 2; }
   .node.on .dot { stroke-width: 1.8; }
   .node.on .label { opacity: 1; }
 
   /* ---- card ---- */
   .card {
-    position: fixed;
-    z-index: 2;
-    width: 268px;
-    max-width: calc(100vw - 28px);
+    position: fixed; z-index: 2; outline: none;
+    width: 268px; max-width: calc(100vw - 28px);
     padding: 15px 17px 17px;
-    background: #ffffff;
-    border: 1px solid #e4e4e4;
+    background: #ffffff; border: 1px solid #e4e4e4;
     box-shadow: 0 12px 34px rgba(0, 0, 0, 0.07), 0 2px 6px rgba(0, 0, 0, 0.04);
-    outline: none;
   }
-  .card h2 {
-    margin: 0 0 7px;
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-  }
-  .card .tagline {
-    margin: 0 0 13px;
-    font-size: 12.5px;
-    line-height: 1.5;
-    color: #4a4a4a;
-  }
+  .card h2 { margin: 0 0 7px; font-size: 14px; font-weight: 600; letter-spacing: 0.05em; }
+  .card .tagline { margin: 0 0 13px; font-size: 12.5px; line-height: 1.5; color: #4a4a4a; }
   .card dl {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 4px 14px;
-    margin: 0 0 14px;
-    font-size: 11px;
+    display: grid; grid-template-columns: auto 1fr;
+    gap: 4px 14px; margin: 0 0 14px; font-size: 11px;
   }
   .card dt { color: #6a6a6a; letter-spacing: 0.1em; }
   .card dd { margin: 0; color: #222222; letter-spacing: 0.03em; }
   .card .status { margin: 0; font-size: 12px; color: #5a5a5a; letter-spacing: 0.04em; }
   .btn {
-    display: block;
-    padding: 9px 12px;
-    border: 1px solid var(--ink);
-    background: var(--ink);
-    color: #ffffff;
-    font: inherit;
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    text-align: center;
-    text-decoration: none;
+    display: block; padding: 9px 12px; text-align: center; text-decoration: none;
+    border: 1px solid var(--ink); background: var(--ink); color: #ffffff;
+    font: inherit; font-size: 12px; letter-spacing: 0.08em;
     transition: background 140ms ease, color 140ms ease;
   }
   .btn:hover { background: #ffffff; color: var(--ink); }
   .btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-  .btn.off {
-    background: #ffffff;
-    color: #6a6a6a;
-    border-color: #dcdcdc;
-    cursor: default;
-  }
+  .btn.off { background: #ffffff; color: #6a6a6a; border-color: #dcdcdc; cursor: default; }
 
   /* ---- compact ---- */
   #graph.compact .dendrites { display: none; }
@@ -255,11 +178,13 @@ const gNodes = document.getElementById("nodes");
 const motionQuery = matchMedia("(prefers-reduced-motion: reduce)");
 let reduced = motionQuery.matches;
 
-const el = (tag, attrs) => {
+const el = (tag, attrs, text) => {
   const n = document.createElementNS(NS, tag);
   for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (text) n.textContent = text;
   return n;
 };
+const round = (v) => v.toFixed(1);
 
 /* Deterministic per-project randomness: same layout on every reload. */
 function seeded(str) {
@@ -341,40 +266,27 @@ function edgePath(n) {
 
 let hub, hubDot;
 
+const HINTS = { exe: "Windows download", web: "web app", soon: "coming soon" };
+
 function build() {
   hub = el("g", { class: "hub", "aria-hidden": "true" });
   hubDot = el("circle", { class: "hub-dot", r: coreR });
-  hub.appendChild(hubDot);
-  const hl = el("text", { class: "hub-label" });
-  hl.textContent = "Youss";
-  hub.appendChild(hl);
-  gNodes.appendChild(hub);
-
+  hub.append(hubDot, el("text", { class: "hub-label" }, "Youss"));
   hub.addEventListener("pointerenter", pulseAll);
+  gNodes.appendChild(hub);
 
   for (const n of nodes) {
     n.edge = el("path", { class: "edge" + (n.p.kind === "soon" ? " dashed" : "") });
-    gEdges.appendChild(n.edge);
-
     n.pulse = el("circle", { class: "pulse", r: 2.5, opacity: 0 });
+    gEdges.appendChild(n.edge);
     gPulses.appendChild(n.pulse);
 
-    const hint = n.p.kind === "exe" ? "Windows download"
-      : n.p.kind === "web" ? "web app" : "coming soon";
     const g = el("g", {
-      class: "node " + n.p.kind,
-      tabindex: "0",
-      role: "button",
-      "aria-label": `${n.p.name} — ${hint}`,
-      "aria-haspopup": "dialog",
-      "aria-expanded": "false"
+      class: "node " + n.p.kind, tabindex: "0", role: "button",
+      "aria-label": `${n.p.name} — ${HINTS[n.p.kind]}`,
+      "aria-haspopup": "dialog", "aria-expanded": "false"
     });
-    const t = el("title");
-    t.textContent = n.p.name;
-    g.appendChild(t);
-
-    /* Everything inside .nucleus scales on hover; the label stays put. */
-    const nuc = el("g", { class: "nucleus" });
+    g.appendChild(el("title", null, n.p.name));
 
     /* Dendrites only ever render at full size, so pin them to that radius. */
     const dg = el("g", { class: "dendrites", "aria-hidden": "true" });
@@ -384,36 +296,25 @@ function build() {
       const x1 = Math.cos(a) * (DEND_R + s.len), y1 = Math.sin(a) * (DEND_R + s.len);
       const qx = (x0 + x1) / 2 - (y1 - y0) * s.curl;
       const qy = (y0 + y1) / 2 + (x1 - x0) * s.curl;
-      dg.appendChild(el("path", {
-        class: "dend",
-        d: `M${x0.toFixed(1)},${y0.toFixed(1)} Q${qx.toFixed(1)},${qy.toFixed(1)} ${x1.toFixed(1)},${y1.toFixed(1)}`
-      }));
-      dg.appendChild(el("circle", { class: "dend-tip", cx: x1.toFixed(1), cy: y1.toFixed(1), r: 2 }));
+      dg.append(
+        el("path", { class: "dend", d: `M${round(x0)},${round(y0)} Q${round(qx)},${round(qy)} ${round(x1)},${round(y1)}` }),
+        el("circle", { class: "dend-tip", cx: round(x1), cy: round(y1), r: 2 })
+      );
     }
-    nuc.appendChild(dg);
 
+    /* Everything inside .nucleus scales on hover; the label stays put. */
     n.ring = el("circle", { class: "ring", r: nodeR + 7 });
     n.dot = el("circle", { class: "dot", r: nodeR });
-    nuc.appendChild(n.ring);
-    nuc.appendChild(n.dot);
-    n.nuc = nuc;
-    g.appendChild(nuc);
-
     n.hit = el("circle", { class: "hit", r: nodeR + 14 });
-    g.appendChild(n.hit);
+    n.nuc = el("g", { class: "nucleus" });
+    n.nuc.append(dg, n.ring, n.dot);
 
-    n.label = el("text", { class: "label" });
-    n.label.appendChild(document.createTextNode(n.p.name));
-    if (n.p.kind === "soon") {
-      const tag = el("tspan", { class: "tag" });
-      tag.textContent = "  soon";
-      n.label.appendChild(tag);
-    }
-    g.appendChild(n.label);
+    n.label = el("text", { class: "label" }, n.p.name);
+    if (n.p.kind === "soon") n.label.appendChild(el("tspan", { class: "tag" }, "  soon"));
+    g.append(n.nuc, n.hit, n.label);
 
     n.g = g;
-    n.scale = 1;
-    n.scaleTo = 1;
+    n.scale = n.scaleTo = 1;
     gNodes.appendChild(g);
 
     g.addEventListener("pointerenter", () => { hovered = n; refresh(); });
@@ -586,47 +487,42 @@ const cardTagline = document.getElementById("card-tagline");
 const cardMeta = document.getElementById("card-meta");
 const cardAction = document.getElementById("card-action");
 
+const html = (tag, cls, text) => {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  node.textContent = text;
+  return node;
+};
+
 function fillCard(p) {
   cardName.textContent = p.name;
   cardTagline.textContent = p.tagline;
 
-  /* Empty fields are omitted rather than printed as "n/a". */
+  /* Empty fields are omitted rather than printed as "n/a", and version and
+     size are never meaningful for a hosted web app. */
   cardMeta.textContent = "";
   const rows = p.kind === "web" ? [["updated", p.updated]]
     : [["version", p.version], ["size", p.size], ["updated", p.updated]];
   for (const [key, value] of rows) {
-    if (!value) continue;
-    const dt = document.createElement("dt");
-    dt.textContent = key;
-    const dd = document.createElement("dd");
-    dd.textContent = value;
-    cardMeta.append(dt, dd);
+    if (value) cardMeta.append(html("dt", "", key), html("dd", "", value));
   }
   cardMeta.hidden = !cardMeta.children.length;
 
   cardAction.textContent = "";
   if (p.kind === "soon") {
-    const note = document.createElement("p");
-    note.className = "status";
-    note.textContent = "In development.";
-    cardAction.append(note);
+    cardAction.append(html("p", "status", "In development."));
   } else if (!p.url) {
-    const off = document.createElement("span");
-    off.className = "btn off";
-    off.textContent = "link coming";
-    cardAction.append(off);
-  } else {
-    const a = document.createElement("a");
-    a.className = "btn";
+    cardAction.append(html("span", "btn off", "link coming"));
+  } else if (p.kind === "exe") {
+    const a = html("a", "btn", "Download .exe");
     a.href = p.url;
-    if (p.kind === "exe") {
-      a.setAttribute("download", "");
-      a.textContent = "Download .exe";
-    } else {
-      a.target = "_blank";
-      a.rel = "noopener";
-      a.textContent = "Open app";
-    }
+    a.setAttribute("download", "");
+    cardAction.append(a);
+  } else {
+    const a = html("a", "btn", "Open app");
+    a.href = p.url;
+    a.target = "_blank";
+    a.rel = "noopener";
     cardAction.append(a);
   }
 }
