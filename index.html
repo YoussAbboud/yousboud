@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Youss</title>
+<meta name="description" content="Downloads for Youss's projects.">
+<meta name="theme-color" content="#ffffff">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='7' fill='%23111111'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --ink: #111111;
+    --edge: #d8d8d8;
+    --label: #262626;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #ffffff; color: var(--ink);
+    font-family: var(--font); -webkit-font-smoothing: antialiased;
+  }
+  #graph { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* ---- edges ---- */
+  .edge { fill: none; stroke: var(--edge); stroke-width: 1.25; stroke-linecap: round; }
+  .edge.dashed { stroke-dasharray: 4 5; }
+
+  /* ---- centre ---- */
+  .hub { cursor: default; }
+  .hub-dot { fill: var(--ink); }
+  .hub-label {
+    fill: #ffffff; font-size: 13px; letter-spacing: 0.1em;
+    text-anchor: middle; dominant-baseline: middle;
+  }
+
+  /* ---- project nodes ---- */
+  .node { outline: none; cursor: pointer; }
+  .hit { fill: transparent; pointer-events: all; }
+  .dendrites { pointer-events: none; }
+  .node .dot { fill: #ffffff; stroke: var(--ink); stroke-width: 1.5; }
+  .ring {
+    fill: none; stroke: var(--ink); stroke-width: 1.25;
+    opacity: 0; transition: opacity 140ms ease;
+  }
+  .node:focus-visible .ring { opacity: 1; }
+  .node.soon .dot { stroke-dasharray: 3 3.5; }
+  .node.soon .dot, .node.soon .dendrites { opacity: 0.5; }
+  .node.soon .label { opacity: 0.68; }   /* dimmed but still AA on white */
+
+  .label {
+    fill: var(--label); font-size: 12.5px; letter-spacing: 0.11em;
+    dominant-baseline: middle; opacity: 0.8;
+    /* Halo drawn behind the glyphs so an edge never runs through a label. */
+    stroke: #ffffff; stroke-width: 3; paint-order: stroke;
+  }
+  .label .tag { font-size: 9.5px; letter-spacing: 0.16em; }
+
+  /* ---- dendrites and pulses ---- */
+  .dend { fill: none; stroke: var(--ink); stroke-width: 1; stroke-linecap: round; opacity: 0.3; }
+  .dend-tip { fill: var(--ink); opacity: 0.3; }
+  .pulse { fill: var(--ink); pointer-events: none; }
+
+  /* ---- active / dimmed ---- */
+  .node, .hub, .label { transition: opacity 180ms ease; }
+  .edge { transition: opacity 180ms ease, stroke 180ms ease, stroke-width 180ms ease; }
+  .dot { transition: stroke-width 180ms ease; }
+  /* The hub stays solid — it is one end of whichever branch is active. */
+  #graph.sel .node:not(.on), #graph.sel .edge:not(.on) { opacity: 0.35; }
+  .edge.on { stroke: var(--ink); stroke-width: 2; }
+  .node.on .dot { stroke-width: 1.8; }
+  .node.on .label { opacity: 1; }
+
+  /* ---- card ---- */
+  .card {
+    position: fixed; z-index: 2; outline: none;
+    width: 268px; max-width: calc(100vw - 28px);
+    padding: 15px 17px 17px;
+    background: #ffffff; border: 1px solid #e4e4e4;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.07), 0 2px 6px rgba(0, 0, 0, 0.04);
+  }
+  .card h2 { margin: 0 0 7px; font-size: 14px; font-weight: 600; letter-spacing: 0.05em; }
+  .card .tagline { margin: 0 0 13px; font-size: 12.5px; line-height: 1.5; color: #4a4a4a; }
+  .card dl {
+    display: grid; grid-template-columns: auto 1fr;
+    gap: 4px 14px; margin: 0 0 14px; font-size: 11px;
+  }
+  .card dt { color: #6a6a6a; letter-spacing: 0.1em; }
+  .card dd { margin: 0; color: #222222; letter-spacing: 0.03em; }
+  .card .status { margin: 0; font-size: 12px; color: #5a5a5a; letter-spacing: 0.04em; }
+  .btn {
+    display: block; padding: 9px 12px; text-align: center; text-decoration: none;
+    border: 1px solid var(--ink); background: var(--ink); color: #ffffff;
+    font: inherit; font-size: 12px; letter-spacing: 0.08em;
+    transition: background 140ms ease, color 140ms ease;
+  }
+  .btn:hover { background: #ffffff; color: var(--ink); }
+  .btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .btn.off { background: #ffffff; color: #6a6a6a; border-color: #dcdcdc; cursor: default; }
+
+  /* ---- compact ---- */
+  #graph.compact .dendrites { display: none; }
+  #graph.compact .label { font-size: 10.5px; letter-spacing: 0.07em; }
+  #graph.compact .hub-label { font-size: 11px; letter-spacing: 0.08em; }
+</style>
+</head>
+<body>
+
+<svg id="graph" role="group" aria-label="Youss — project map" xmlns="http://www.w3.org/2000/svg">
+  <g id="edges"></g>
+  <g id="pulses" aria-hidden="true"></g>
+  <g id="nodes"></g>
+</svg>
+
+<div id="card" class="card" role="dialog" aria-labelledby="card-name" aria-describedby="card-tagline" tabindex="-1" hidden>
+  <h2 id="card-name"></h2>
+  <p id="card-tagline" class="tagline"></p>
+  <dl id="card-meta"></dl>
+  <div id="card-action"></div>
+</div>
+
+<script>
+/* Edit this array to add or update a project — nothing else needs to change.
+   For kind "exe", `url` must be a direct-download link; GitHub Releases asset
+   URLs are the intended source for the installers. */
+const PROJECTS = [
+  {
+    id: "debloat",
+    name: "Debloat",
+    tagline: "Strip Windows down to what you actually use.",
+    kind: "exe",              // "exe" | "web" | "soon"
+    version: "1.0.0",
+    size: "",                 // fill in later
+    url: "",                  // direct .exe download link
+    updated: ""
+  },
+  {
+    id: "coreview",
+    name: "CoreView",
+    tagline: "Live PC monitoring with 3D airflow visualization.",
+    kind: "exe",
+    version: "1.0.0",
+    size: "",
+    url: "",
+    updated: ""
+  },
+  {
+    id: "droply",
+    name: "Droply",
+    tagline: "Send photos and clipboard between your devices.",
+    kind: "web",
+    version: "",
+    size: "",
+    url: "",                  // https:// app URL
+    updated: ""
+  },
+  {
+    id: "forge",
+    name: "FORGE Benchmark",
+    tagline: "CPU and GPU scoring, plus stress testing.",
+    kind: "soon",
+    version: "",
+    size: "",
+    url: "",
+    updated: ""
+  }
+];
+
+/* ------------------------------------------------------------------ */
+
+const NS = "http://www.w3.org/2000/svg";
+const TAU = Math.PI * 2;
+const svg = document.getElementById("graph");
+const gEdges = document.getElementById("edges");
+const gPulses = document.getElementById("pulses");
+const gNodes = document.getElementById("nodes");
+
+const motionQuery = matchMedia("(prefers-reduced-motion: reduce)");
+let reduced = motionQuery.matches;
+
+const el = (tag, attrs, text) => {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (text) n.textContent = text;
+  return n;
+};
+const round = (v) => v.toFixed(1);
+
+/* Deterministic per-project randomness: same layout on every reload. */
+function seeded(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  let s = h >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* Fixed per-project traits (angle offset, bow direction, dendrites). */
+const nodes = PROJECTS.map((p, i) => {
+  const rnd = seeded(p.id);
+  const slice = TAU / PROJECTS.length;
+  const angle = -Math.PI / 2 + 0.55 + i * slice + (rnd() - 0.5) * slice * 0.3;
+  const rScale = 0.88 + rnd() * 0.24;
+  const bow = (rnd() < 0.5 ? -1 : 1) * (0.1 + rnd() * 0.07);
+  const stubs = [];
+  const count = 2 + Math.floor(rnd() * 3);
+  for (let s = 0; s < count; s++) {
+    const side = s % 2 ? 1 : -1;
+    stubs.push({
+      a: side * (0.8 + rnd() * 1.5),   // radians off the outward direction
+      len: 11 + rnd() * 13,
+      curl: (rnd() - 0.5) * 0.9
+    });
+  }
+  /* Two slow sines on different periods = a wander, not a circle. */
+  const drift = {
+    xPh: rnd() * TAU, xPer: 5200 + rnd() * 4200, xAmp: 2 + rnd() * 1.8,
+    yPh: rnd() * TAU, yPer: 6100 + rnd() * 5200, yAmp: 1.6 + rnd() * 1.6
+  };
+  return { p, angle, rScale, bow, stubs, drift, x: 0, y: 0, pulseAt: null };
+});
+
+const DEND_R = 18;
+let cx = 0, cy = 0, hx = 0, hy = 0, R = 0, nodeR = 18, coreR = 34, compact = false;
+
+function layout() {
+  const w = window.innerWidth, h = window.innerHeight;
+  compact = w < 640;
+  cx = hx = w / 2;
+  cy = hy = h / 2;
+  /* Compact labels sit below their node, so the ring opens up to keep them
+     clear of the hub; wide layouts keep a width term so outward labels have
+     somewhere to go on narrow-but-not-compact windows. */
+  R = compact
+    ? Math.min(w * 0.42, h * 0.30)
+    : Math.max(96, Math.min(w * 0.27, h * 0.30, 300));
+  nodeR = compact ? 13 : 18;
+  coreR = compact ? 26 : 34;
+  for (const n of nodes) {
+    n.x = cx + Math.cos(n.angle) * R * n.rScale;
+    n.y = cy + Math.sin(n.angle) * R * n.rScale;
+    n.px = n.x;
+    n.py = n.y;
+  }
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  svg.classList.toggle("compact", compact);
+}
+
+/* Quadratic bezier from centre to node, bowed sideways so it reads organic.
+   Caches the control point so pulses can ride the same curve. */
+function edgePath(n) {
+  const dx = n.px - hx, dy = n.py - hy;
+  const dist = Math.hypot(dx, dy) || 1;
+  const off = dist * n.bow;
+  const qx = hx + dx / 2 + (-dy / dist) * off;
+  const qy = hy + dy / 2 + (dx / dist) * off;
+  n.qx = qx;
+  n.qy = qy;
+  return `M${hx.toFixed(1)},${hy.toFixed(1)} Q${qx.toFixed(1)},${qy.toFixed(1)} ${n.px.toFixed(1)},${n.py.toFixed(1)}`;
+}
+
+let hub, hubDot;
+
+const HINTS = { exe: "Windows download", web: "web app", soon: "coming soon" };
+
+function build() {
+  hub = el("g", { class: "hub", "aria-hidden": "true" });
+  hubDot = el("circle", { class: "hub-dot", r: coreR });
+  hub.append(hubDot, el("text", { class: "hub-label" }, "Youss"));
+  hub.addEventListener("pointerenter", pulseAll);
+  gNodes.appendChild(hub);
+
+  for (const n of nodes) {
+    n.edge = el("path", { class: "edge" + (n.p.kind === "soon" ? " dashed" : "") });
+    n.pulse = el("circle", { class: "pulse", r: 2.5, opacity: 0 });
+    gEdges.appendChild(n.edge);
+    gPulses.appendChild(n.pulse);
+
+    const g = el("g", {
+      class: "node " + n.p.kind, tabindex: "0", role: "button",
+      "aria-label": `${n.p.name} — ${HINTS[n.p.kind]}`,
+      "aria-haspopup": "dialog", "aria-expanded": "false"
+    });
+    g.appendChild(el("title", null, n.p.name));
+
+    /* Dendrites only ever render at full size, so pin them to that radius. */
+    const dg = el("g", { class: "dendrites", "aria-hidden": "true" });
+    for (const s of n.stubs) {
+      const a = n.angle + s.a;
+      const x0 = Math.cos(a) * (DEND_R + 1), y0 = Math.sin(a) * (DEND_R + 1);
+      const x1 = Math.cos(a) * (DEND_R + s.len), y1 = Math.sin(a) * (DEND_R + s.len);
+      const qx = (x0 + x1) / 2 - (y1 - y0) * s.curl;
+      const qy = (y0 + y1) / 2 + (x1 - x0) * s.curl;
+      dg.append(
+        el("path", { class: "dend", d: `M${round(x0)},${round(y0)} Q${round(qx)},${round(qy)} ${round(x1)},${round(y1)}` }),
+        el("circle", { class: "dend-tip", cx: round(x1), cy: round(y1), r: 2 })
+      );
+    }
+
+    /* Everything inside .nucleus scales on hover; the label stays put. */
+    n.ring = el("circle", { class: "ring", r: nodeR + 7 });
+    n.dot = el("circle", { class: "dot", r: nodeR });
+    n.hit = el("circle", { class: "hit", r: nodeR + 14 });
+    n.nuc = el("g", { class: "nucleus" });
+    n.nuc.append(dg, n.ring, n.dot);
+
+    n.label = el("text", { class: "label" }, n.p.name);
+    if (n.p.kind === "soon") n.label.appendChild(el("tspan", { class: "tag" }, "  soon"));
+    g.append(n.nuc, n.hit, n.label);
+
+    n.g = g;
+    n.scale = n.scaleTo = 1;
+    gNodes.appendChild(g);
+
+    g.addEventListener("pointerenter", () => { hovered = n; refresh(); });
+    g.addEventListener("pointerleave", () => { if (hovered === n) hovered = null; refresh(); });
+    g.addEventListener("focus", () => { focused = n; refresh(); });
+    g.addEventListener("blur", () => { if (focused === n) focused = null; refresh(); });
+    g.addEventListener("click", () => openCard(n));
+    g.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openCard(n); }
+    });
+  }
+}
+
+function place() {
+  hub.setAttribute("transform", `translate(${cx},${cy})`);
+  hubDot.setAttribute("r", coreR);
+
+  for (const n of nodes) {
+    n.dot.setAttribute("r", nodeR);
+    n.ring.setAttribute("r", nodeR + 7);
+    n.hit.setAttribute("r", nodeR + 14);
+
+    const c = Math.cos(n.angle), s = Math.sin(n.angle);
+    let lx;
+    if (compact) {
+      lx = 0;
+      n.label.setAttribute("y", nodeR + 15);
+      n.label.setAttribute("text-anchor", "middle");
+    } else {
+      const vertical = Math.abs(c) < 0.35;
+      const pad = nodeR + (vertical ? 20 : 14);
+      lx = c * pad;
+      n.label.setAttribute("y", (s * pad).toFixed(1));
+      n.label.setAttribute("text-anchor", vertical ? "middle" : (c > 0 ? "start" : "end"));
+    }
+    n.label.setAttribute("x", lx.toFixed(1));
+
+    /* Nudge a label that would run off-screen back inside. getBBox accounts
+       for the text anchor; measured once per layout, never in the frame loop. */
+    const M = 12, vw = window.innerWidth;
+    const bb = n.label.getBBox();
+    const l = n.x + bb.x, r = l + bb.width;
+    let shift = 0;
+    if (bb.width > vw - 2 * M) shift = vw / 2 - (l + bb.width / 2);
+    else if (l < M) shift = M - l;
+    else if (r > vw - M) shift = vw - M - r;
+    if (shift) n.label.setAttribute("x", (lx + shift).toFixed(1));
+  }
+  paint();
+}
+
+/* ---- per-frame writes: positions, scales, edge curves ---- */
+
+function paint() {
+  for (const n of nodes) {
+    n.g.setAttribute("transform", `translate(${n.px.toFixed(1)},${n.py.toFixed(1)})`);
+    n.nuc.setAttribute("transform", `scale(${n.scale.toFixed(3)})`);
+    n.edge.setAttribute("d", edgePath(n));
+  }
+}
+
+/* A dot riding one edge outward from the hub: the neural flourish. */
+const PULSE_MS = 900;
+let nextPulse = 0;
+
+function pulseAll() {
+  if (reduced) return;
+  const t = performance.now();
+  for (const n of nodes) n.pulseAt = t;
+  kick();
+}
+
+function drawPulses(now) {
+  for (const n of nodes) {
+    if (n.pulseAt === null) continue;
+    const u = (now - n.pulseAt) / PULSE_MS;
+    if (u >= 1) {
+      n.pulseAt = null;
+      n.pulse.setAttribute("opacity", 0);
+      continue;
+    }
+    const e = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+    const m = 1 - e;
+    const dim = active && n !== active ? 0.3 : 1;
+    n.pulse.setAttribute("cx", (m * m * hx + 2 * m * e * n.qx + e * e * n.px).toFixed(1));
+    n.pulse.setAttribute("cy", (m * m * hy + 2 * m * e * n.qy + e * e * n.py).toFixed(1));
+    n.pulse.setAttribute("opacity", (Math.sin(Math.PI * u) * dim).toFixed(2));
+  }
+}
+
+/* One frame loop for everything; suspended when nothing is moving. */
+let raf = 0, last = 0;
+function kick() { if (!raf) { last = 0; raf = requestAnimationFrame(tick); } }
+
+function tick(now) {
+  const dt = last ? Math.min(now - last, 64) : 16;
+  last = now;
+  let busy = !reduced;
+
+  const ease = 1 - Math.exp(-dt / 55);   // ~180ms to settle
+  for (const n of nodes) {
+    if (Math.abs(n.scaleTo - n.scale) > 0.001) {
+      n.scale += (n.scaleTo - n.scale) * ease;
+      busy = true;
+    } else {
+      n.scale = n.scaleTo;
+    }
+    if (!reduced) {
+      const d = n.drift;
+      n.px = n.x + Math.sin((now / d.xPer) * TAU + d.xPh) * d.xAmp;
+      n.py = n.y + Math.sin((now / d.yPer) * TAU + d.yPh) * d.yAmp;
+    }
+  }
+
+  if (!reduced) {
+    hx = cx + Math.sin((now / 8300) * TAU) * 1.2;
+    hy = cy + Math.sin((now / 9700) * TAU + 1.1) * 1.2;
+    hub.setAttribute("transform", `translate(${hx.toFixed(1)},${hy.toFixed(1)})`);
+    if (!nextPulse) nextPulse = now + 1600;
+    if (now >= nextPulse) {
+      nodes[Math.floor(Math.random() * nodes.length)].pulseAt = now;
+      nextPulse = now + 2400 + Math.random() * 3200;
+    }
+  }
+
+  paint();
+  drawPulses(now);
+  raf = busy ? requestAnimationFrame(tick) : 0;
+}
+
+function applyMotionPref() {
+  reduced = motionQuery.matches;
+  if (reduced) {
+    for (const n of nodes) {
+      n.px = n.x;
+      n.py = n.y;
+      n.pulseAt = null;
+      n.pulse.setAttribute("opacity", 0);
+    }
+    hx = cx;
+    hy = cy;
+    hub.setAttribute("transform", `translate(${cx},${cy})`);
+    paint();
+  }
+  kick();
+}
+motionQuery.addEventListener("change", applyMotionPref);
+
+/* ---- hover / focus ---- */
+
+let hovered = null, focused = null, opened = null, active = null;
+
+function refresh() {
+  active = opened || focused || hovered;
+  svg.classList.toggle("sel", !!active);
+  for (const n of nodes) {
+    const on = n === active;
+    n.g.classList.toggle("on", on);
+    n.edge.classList.toggle("on", on);
+    n.scaleTo = on ? 1.1 : 1;
+  }
+  kick();
+}
+
+/* ---- detail card ---- */
+
+const card = document.getElementById("card");
+const cardName = document.getElementById("card-name");
+const cardTagline = document.getElementById("card-tagline");
+const cardMeta = document.getElementById("card-meta");
+const cardAction = document.getElementById("card-action");
+
+const html = (tag, cls, text) => {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  node.textContent = text;
+  return node;
+};
+
+function fillCard(p) {
+  cardName.textContent = p.name;
+  cardTagline.textContent = p.tagline;
+
+  /* Empty fields are omitted rather than printed as "n/a", and version and
+     size are never meaningful for a hosted web app. */
+  cardMeta.textContent = "";
+  const rows = p.kind === "web" ? [["updated", p.updated]]
+    : [["version", p.version], ["size", p.size], ["updated", p.updated]];
+  for (const [key, value] of rows) {
+    if (value) cardMeta.append(html("dt", "", key), html("dd", "", value));
+  }
+  cardMeta.hidden = !cardMeta.children.length;
+
+  cardAction.textContent = "";
+  if (p.kind === "soon") {
+    cardAction.append(html("p", "status", "In development."));
+  } else if (!p.url) {
+    cardAction.append(html("span", "btn off", "link coming"));
+  } else if (p.kind === "exe") {
+    const a = html("a", "btn", "Download .exe");
+    a.href = p.url;
+    a.setAttribute("download", "");
+    cardAction.append(a);
+  } else {
+    const a = html("a", "btn", "Open app");
+    a.href = p.url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    cardAction.append(a);
+  }
+}
+
+/* Anchored beside the node, on the opposite side from its label so the label
+   stays readable, and flipped again if that side would overflow. Narrow
+   screens have no room to sit beside anything, so the card goes above or
+   below the node instead. */
+function positionCard(n) {
+  const M = 14;
+  const gap = nodeR + 22;
+  const w = card.offsetWidth, h = card.offsetHeight;
+  let left, top;
+
+  if (compact) {
+    left = (window.innerWidth - w) / 2;
+    const below = n.py + gap;
+    top = below + h < window.innerHeight - M ? below : n.py - gap - h;
+  } else {
+    const toLeft = Math.cos(n.angle) > 0;
+    left = toLeft ? n.px - gap - w : n.px + gap;
+    if (toLeft ? left < M : left + w > window.innerWidth - M) {
+      left = toLeft ? n.px + gap : n.px - gap - w;
+    }
+    top = n.py - h / 2;
+  }
+
+  left = Math.max(M, Math.min(left, window.innerWidth - w - M));
+  top = Math.max(M, Math.min(top, window.innerHeight - h - M));
+  card.style.left = left + "px";
+  card.style.top = top + "px";
+}
+
+function openCard(n) {
+  if (opened === n) { closeCard(); return; }
+  if (opened) opened.g.setAttribute("aria-expanded", "false");
+  opened = n;
+  fillCard(n.p);
+  card.hidden = false;
+  positionCard(n);
+  n.g.setAttribute("aria-expanded", "true");
+  refresh();
+  (card.querySelector(".btn:not(.off)") || card).focus();
+}
+
+function closeCard() {
+  if (!opened) return;
+  const n = opened;
+  opened = null;
+  const hadFocus = card.contains(document.activeElement);
+  card.hidden = true;
+  n.g.setAttribute("aria-expanded", "false");
+  refresh();
+  if (hadFocus) n.g.focus();
+}
+
+document.addEventListener("pointerdown", (e) => {
+  if (card.contains(e.target) || e.target.closest(".node")) return;
+  closeCard();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeCard();
+});
+
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    layout();
+    place();
+    if (opened) positionCard(opened);
+  }, 120);
+});
+
+layout();
+build();
+place();
+kick();
+</script>
+</body>
+</html>
