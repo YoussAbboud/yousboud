@@ -27,7 +27,7 @@
   .edge.dashed { stroke-dasharray: 4 5; }
 
   /* ---- centre ---- */
-  .hub { cursor: default; }
+  .hub { cursor: grab; touch-action: none; }
   .hub-dot { fill: var(--ink); }
   .hub-label {
     fill: #ffffff; font-size: 13px; letter-spacing: 0.1em;
@@ -35,7 +35,10 @@
   }
 
   /* ---- project nodes ---- */
-  .node { outline: none; cursor: pointer; }
+  /* Click is the primary action, so nodes keep the pointer cursor and only
+     switch to grabbing once a drag actually starts. */
+  .node { outline: none; cursor: pointer; touch-action: none; }
+  .dragging, .dragging .hub-dot { cursor: grabbing; }
   .hit { fill: transparent; pointer-events: all; }
   .dendrites { pointer-events: none; }
   .node .dot { fill: #ffffff; stroke: var(--ink); stroke-width: 1.5; }
@@ -130,9 +133,9 @@ const PROJECTS = [
     tagline: "Strip Windows down to what you actually use.",
     kind: "exe",              // "exe" | "web" | "soon"
     version: "1.0.0",
-    size: "",                 // fill in later
-    url: "",                  // direct .exe download link
-    updated: ""
+    size: "74 MB",
+    url: "https://github.com/YoussAbboud/yousboud/releases/download/debloat/DebloatToolkit.exe",
+    updated: "Aug 2026"
   },
   {
     id: "coreview",
@@ -140,9 +143,9 @@ const PROJECTS = [
     tagline: "Live PC monitoring with 3D airflow visualization.",
     kind: "exe",
     version: "1.0.0",
-    size: "",
-    url: "",
-    updated: ""
+    size: "29 MB",
+    url: "https://github.com/YoussAbboud/yousboud/releases/download/monitor/CoreView_0.1.0_x64-setup.exe",
+    updated: "Aug 2026"
   },
   {
     id: "droply",
@@ -151,7 +154,7 @@ const PROJECTS = [
     kind: "web",
     version: "",
     size: "",
-    url: "",                  // https:// app URL
+    url: "https://droply-send-photos.lovable.app/",
     updated: ""
   },
   {
@@ -274,6 +277,7 @@ function build() {
   hub.append(hubDot, el("text", { class: "hub-label" }, "Youss"));
   hub.addEventListener("pointerenter", pulseAll);
   gNodes.appendChild(hub);
+  draggable(hub, hubDrag);
 
   for (const n of nodes) {
     n.edge = el("path", { class: "edge" + (n.p.kind === "soon" ? " dashed" : "") });
@@ -315,13 +319,18 @@ function build() {
 
     n.g = g;
     n.scale = n.scaleTo = 1;
+    n.ox = n.oy = n.vx = n.vy = 0;
     gNodes.appendChild(g);
+    draggable(g, n);
 
     g.addEventListener("pointerenter", () => { hovered = n; refresh(); });
     g.addEventListener("pointerleave", () => { if (hovered === n) hovered = null; refresh(); });
     g.addEventListener("focus", () => { focused = n; refresh(); });
     g.addEventListener("blur", () => { if (focused === n) focused = null; refresh(); });
-    g.addEventListener("click", () => openCard(n));
+    g.addEventListener("click", () => {
+      if (suppressClick) { suppressClick = false; return; }
+      openCard(n);
+    });
     g.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openCard(n); }
     });
@@ -405,6 +414,84 @@ function drawPulses(now) {
   }
 }
 
+/* ---- dragging ----
+   Bubbles can be grabbed and flung; each one springs back to where the layout
+   put it, so the composition always heals itself. */
+/* Underdamped so a released bubble bounces, but only just — and fling speed is
+   capped so a hard throw can't send it flying past the centre. */
+const SPRING = 130, DAMP = 15, MAX_FLING = 900;
+const hubDrag = { ox: 0, oy: 0, vx: 0, vy: 0 };
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+let dragged = null, dragMoved = false, suppressClick = false;
+
+function draggable(el, obj) {
+  el.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    suppressClick = false;
+    dragged = obj;
+    dragMoved = false;
+    obj.sx = e.clientX;
+    obj.sy = e.clientY;
+    obj.bx = obj.ox;
+    obj.by = obj.oy;
+    obj.vx = obj.vy = 0;
+    obj.lastT = performance.now();
+    el.setPointerCapture(e.pointerId);
+    kick();
+  });
+
+  el.addEventListener("pointermove", (e) => {
+    if (dragged !== obj) return;
+    const dx = e.clientX - obj.sx, dy = e.clientY - obj.sy;
+    /* Below the threshold this is still a click, not a drag. */
+    if (!dragMoved) {
+      if (Math.hypot(dx, dy) < 4) return;
+      dragMoved = true;
+      closeCard();
+      el.classList.add("dragging");
+    }
+    const nx = obj.bx + dx, ny = obj.by + dy;
+    const t = performance.now();
+    const step = Math.max(t - obj.lastT, 8) / 1000;
+    obj.vx = clamp((nx - obj.ox) / step, -MAX_FLING, MAX_FLING);
+    obj.vy = clamp((ny - obj.oy) / step, -MAX_FLING, MAX_FLING);
+    obj.lastT = t;
+    obj.ox = nx;
+    obj.oy = ny;
+  });
+
+  const release = (e) => {
+    if (dragged !== obj) return;
+    dragged = null;
+    suppressClick = dragMoved;
+    el.classList.remove("dragging");
+    if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+    kick();
+  };
+  el.addEventListener("pointerup", release);
+  el.addEventListener("pointercancel", release);
+}
+
+/* Returns true while the bubble still needs frames. */
+function settle(obj, step) {
+  if (obj === dragged) return true;
+  if (!obj.ox && !obj.oy && !obj.vx && !obj.vy) return false;
+  if (reduced) {                       // no bounce; snap straight home
+    obj.ox = obj.oy = obj.vx = obj.vy = 0;
+    return false;
+  }
+  obj.vx += (-SPRING * obj.ox - DAMP * obj.vx) * step;
+  obj.vy += (-SPRING * obj.oy - DAMP * obj.vy) * step;
+  obj.ox += obj.vx * step;
+  obj.oy += obj.vy * step;
+  if (Math.abs(obj.ox) < 0.06 && Math.abs(obj.oy) < 0.06 &&
+      Math.abs(obj.vx) < 2 && Math.abs(obj.vy) < 2) {
+    obj.ox = obj.oy = obj.vx = obj.vy = 0;
+    return false;
+  }
+  return true;
+}
+
 /* One frame loop for everything; suspended when nothing is moving. */
 let raf = 0, last = 0;
 function kick() { if (!raf) { last = 0; raf = requestAnimationFrame(tick); } }
@@ -415,6 +502,7 @@ function tick(now) {
   let busy = !reduced;
 
   const ease = 1 - Math.exp(-dt / 55);   // ~180ms to settle
+  const step = dt / 1000;
   for (const n of nodes) {
     if (Math.abs(n.scaleTo - n.scale) > 0.001) {
       n.scale += (n.scaleTo - n.scale) * ease;
@@ -422,17 +510,18 @@ function tick(now) {
     } else {
       n.scale = n.scaleTo;
     }
-    if (!reduced) {
-      const d = n.drift;
-      n.px = n.x + Math.sin((now / d.xPer) * TAU + d.xPh) * d.xAmp;
-      n.py = n.y + Math.sin((now / d.yPer) * TAU + d.yPh) * d.yAmp;
-    }
+    if (settle(n, step)) busy = true;
+    const d = n.drift;
+    n.px = n.x + n.ox + (reduced ? 0 : Math.sin((now / d.xPer) * TAU + d.xPh) * d.xAmp);
+    n.py = n.y + n.oy + (reduced ? 0 : Math.sin((now / d.yPer) * TAU + d.yPh) * d.yAmp);
   }
 
+  if (settle(hubDrag, step)) busy = true;
+  hx = cx + hubDrag.ox + (reduced ? 0 : Math.sin((now / 8300) * TAU) * 1.2);
+  hy = cy + hubDrag.oy + (reduced ? 0 : Math.sin((now / 9700) * TAU + 1.1) * 1.2);
+  hub.setAttribute("transform", `translate(${round(hx)},${round(hy)})`);
+
   if (!reduced) {
-    hx = cx + Math.sin((now / 8300) * TAU) * 1.2;
-    hy = cy + Math.sin((now / 9700) * TAU + 1.1) * 1.2;
-    hub.setAttribute("transform", `translate(${hx.toFixed(1)},${hy.toFixed(1)})`);
     if (!nextPulse) nextPulse = now + 1600;
     if (now >= nextPulse) {
       nodes[Math.floor(Math.random() * nodes.length)].pulseAt = now;
