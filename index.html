@@ -55,7 +55,7 @@
     fill: var(--label); font-size: 12.5px; letter-spacing: 0.11em;
     dominant-baseline: middle; opacity: 0.8;
     /* Halo drawn behind the glyphs so an edge never runs through a label. */
-    stroke: #ffffff; stroke-width: 3; paint-order: stroke;
+    stroke: #ffffff; stroke-width: 4; paint-order: stroke;
   }
   .label .tag { font-size: 9.5px; letter-spacing: 0.16em; }
 
@@ -220,10 +220,13 @@ const nodes = PROJECTS.map((p, i) => {
       curl: (rnd() - 0.5) * 0.9
     });
   }
-  /* Two slow sines on different periods = a wander, not a circle. */
+  /* Two sines per axis on unrelated periods: the slow one carries the float,
+     the faster one keeps it from reading as a pendulum. */
   const drift = {
-    xPh: rnd() * TAU, xPer: 5200 + rnd() * 4200, xAmp: 2 + rnd() * 1.8,
-    yPh: rnd() * TAU, yPer: 6100 + rnd() * 5200, yAmp: 1.6 + rnd() * 1.6
+    xPh: rnd() * TAU, xPer: 9000 + rnd() * 7000, xAmp: 6 + rnd() * 7,
+    yPh: rnd() * TAU, yPer: 11000 + rnd() * 8000, yAmp: 5 + rnd() * 7,
+    xPh2: rnd() * TAU, xPer2: 4300 + rnd() * 3000, xAmp2: 2 + rnd() * 2.5,
+    yPh2: rnd() * TAU, yPer2: 5200 + rnd() * 3400, yAmp2: 2 + rnd() * 2.5
   };
   return { p, angle, rScale, bow, stubs, drift, x: 0, y: 0, pulseAt: null };
 });
@@ -361,16 +364,15 @@ function place() {
     }
     n.label.setAttribute("x", lx.toFixed(1));
 
-    /* Nudge a label that would run off-screen back inside. getBBox accounts
-       for the text anchor; measured once per layout, never in the frame loop. */
-    const M = 12, vw = window.innerWidth;
+    /* Measure the label's box once per layout and cache it. The frame loop
+       keeps the label on screen from these numbers alone, so a floating or
+       dropped bubble never drags its label off the edge, and getBBox never
+       runs inside the loop. */
     const bb = n.label.getBBox();
-    const l = n.x + bb.x, r = l + bb.width;
-    let shift = 0;
-    if (bb.width > vw - 2 * M) shift = vw / 2 - (l + bb.width / 2);
-    else if (l < M) shift = M - l;
-    else if (r > vw - M) shift = vw - M - r;
-    if (shift) n.label.setAttribute("x", (lx + shift).toFixed(1));
+    n.lx = lx;
+    n.lbx = bb.x;
+    n.lw = bb.width;
+    n.lShift = null;
   }
   paint();
 }
@@ -378,10 +380,22 @@ function place() {
 /* ---- per-frame writes: positions, scales, edge curves ---- */
 
 function paint() {
+  const M = 12, vw = window.innerWidth;
   for (const n of nodes) {
-    n.g.setAttribute("transform", `translate(${n.px.toFixed(1)},${n.py.toFixed(1)})`);
+    n.g.setAttribute("transform", `translate(${round(n.px)},${round(n.py)})`);
     n.nuc.setAttribute("transform", `scale(${n.scale.toFixed(3)})`);
     n.edge.setAttribute("d", edgePath(n));
+
+    /* Pure arithmetic from the cached box — keeps the label on screen. */
+    const left = n.px + n.lbx, right = left + n.lw;
+    let shift = 0;
+    if (n.lw > vw - 2 * M) shift = vw / 2 - (left + n.lw / 2);
+    else if (left < M) shift = M - left;
+    else if (right > vw - M) shift = vw - M - right;
+    if (n.lShift === null || Math.abs(shift - n.lShift) > 0.5) {
+      n.label.setAttribute("x", round(n.lx + shift));
+      n.lShift = shift;
+    }
   }
 }
 
@@ -417,9 +431,9 @@ function drawPulses(now) {
 /* ---- dragging ----
    Bubbles can be grabbed and flung; each one springs back to where the layout
    put it, so the composition always heals itself. */
-/* Underdamped so a released bubble bounces, but only just — and fling speed is
-   capped so a hard throw can't send it flying past the centre. */
-const SPRING = 130, DAMP = 15, MAX_FLING = 900;
+/* No spring: a released bubble keeps the speed it was thrown with and coasts
+   to a stop, then stays put and floats from there. */
+const FRICTION = 6.0, MAX_FLING = 800;
 const hubDrag = { ox: 0, oy: 0, vx: 0, vy: 0 };
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 let dragged = null, dragMoved = false, suppressClick = false;
@@ -472,24 +486,28 @@ function draggable(el, obj) {
   el.addEventListener("pointercancel", release);
 }
 
-/* Returns true while the bubble still needs frames. */
-function settle(obj, step) {
+/* Coast after a throw. Returns true while the bubble still needs frames. */
+function glide(obj, step) {
   if (obj === dragged) return true;
-  if (!obj.ox && !obj.oy && !obj.vx && !obj.vy) return false;
-  if (reduced) {                       // no bounce; snap straight home
-    obj.ox = obj.oy = obj.vx = obj.vy = 0;
-    return false;
-  }
-  obj.vx += (-SPRING * obj.ox - DAMP * obj.vx) * step;
-  obj.vy += (-SPRING * obj.oy - DAMP * obj.vy) * step;
+  if (!obj.vx && !obj.vy) return false;
+  if (reduced) { obj.vx = obj.vy = 0; return false; }
+  const decay = Math.exp(-FRICTION * step);
+  obj.vx *= decay;
+  obj.vy *= decay;
   obj.ox += obj.vx * step;
   obj.oy += obj.vy * step;
-  if (Math.abs(obj.ox) < 0.06 && Math.abs(obj.oy) < 0.06 &&
-      Math.abs(obj.vx) < 2 && Math.abs(obj.vy) < 2) {
-    obj.ox = obj.oy = obj.vx = obj.vy = 0;
-    return false;
-  }
+  if (Math.hypot(obj.vx, obj.vy) < 3) { obj.vx = obj.vy = 0; return false; }
   return true;
+}
+
+/* Keep a bubble on screen however hard it was thrown. */
+function contain(obj, homeX, homeY, pad) {
+  const x = homeX + obj.ox, y = homeY + obj.oy;
+  const maxX = window.innerWidth - pad, maxY = window.innerHeight - pad;
+  if (x < pad) { obj.ox = pad - homeX; obj.vx = 0; }
+  else if (x > maxX) { obj.ox = maxX - homeX; obj.vx = 0; }
+  if (y < pad) { obj.oy = pad - homeY; obj.vy = 0; }
+  else if (y > maxY) { obj.oy = maxY - homeY; obj.vy = 0; }
 }
 
 /* One frame loop for everything; suspended when nothing is moving. */
@@ -510,15 +528,21 @@ function tick(now) {
     } else {
       n.scale = n.scaleTo;
     }
-    if (settle(n, step)) busy = true;
+    if (glide(n, step)) busy = true;
+    contain(n, n.x, n.y, nodeR + 30);   // room for label and dendrites
     const d = n.drift;
-    n.px = n.x + n.ox + (reduced ? 0 : Math.sin((now / d.xPer) * TAU + d.xPh) * d.xAmp);
-    n.py = n.y + n.oy + (reduced ? 0 : Math.sin((now / d.yPer) * TAU + d.yPh) * d.yAmp);
+    n.px = n.x + n.ox + (reduced ? 0 : Math.sin((now / d.xPer) * TAU + d.xPh) * d.xAmp
+      + Math.sin((now / d.xPer2) * TAU + d.xPh2) * d.xAmp2);
+    n.py = n.y + n.oy + (reduced ? 0 : Math.sin((now / d.yPer) * TAU + d.yPh) * d.yAmp
+      + Math.sin((now / d.yPer2) * TAU + d.yPh2) * d.yAmp2);
   }
 
-  if (settle(hubDrag, step)) busy = true;
-  hx = cx + hubDrag.ox + (reduced ? 0 : Math.sin((now / 8300) * TAU) * 1.2);
-  hy = cy + hubDrag.oy + (reduced ? 0 : Math.sin((now / 9700) * TAU + 1.1) * 1.2);
+  if (glide(hubDrag, step)) busy = true;
+  contain(hubDrag, cx, cy, coreR + 10);
+  hx = cx + hubDrag.ox + (reduced ? 0 : Math.sin((now / 12400) * TAU) * 5
+    + Math.sin((now / 6100) * TAU + 2.1) * 2);
+  hy = cy + hubDrag.oy + (reduced ? 0 : Math.sin((now / 14900) * TAU + 1.1) * 4.5
+    + Math.sin((now / 7300) * TAU + 0.4) * 1.8);
   hub.setAttribute("transform", `translate(${round(hx)},${round(hy)})`);
 
   if (!reduced) {
