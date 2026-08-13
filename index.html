@@ -45,8 +45,9 @@
   .edge.dashed { stroke-dasharray: 4 5; }
 
   /* ---- center ---- */
-  .core-dot { fill: var(--ink); }
-  .core-label {
+  .hub { cursor: default; }
+  .hub-dot { fill: var(--ink); }
+  .hub-label {
     fill: #ffffff;
     font-size: 13px;
     letter-spacing: 0.1em;
@@ -55,12 +56,22 @@
   }
 
   /* ---- project nodes ---- */
-  .node { outline: none; }
+  .node { outline: none; cursor: pointer; }
+  .hit { fill: transparent; pointer-events: all; }
+  .dendrites { pointer-events: none; }
   .node .dot {
     fill: #ffffff;
     stroke: var(--ink);
     stroke-width: 1.5;
   }
+  .ring {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 1.25;
+    opacity: 0;
+    transition: opacity 140ms ease;
+  }
+  .node:focus-visible .ring { opacity: 1; }
   .node.soon .dot { stroke-dasharray: 3 3.5; }
   .node.soon .dot,
   .node.soon .dendrites { opacity: 0.5; }
@@ -88,10 +99,23 @@
   }
   .dend-tip { fill: var(--ink); opacity: 0.3; }
 
+  /* ---- active / dimmed ---- */
+  .node, .hub, .label { transition: opacity 180ms ease; }
+  .edge { transition: opacity 180ms ease, stroke 180ms ease, stroke-width 180ms ease; }
+  .dot { transition: stroke-width 180ms ease; }
+
+  /* The hub stays solid — it is one end of whichever branch is active. */
+  #graph.sel .node:not(.on),
+  #graph.sel .edge:not(.on) { opacity: 0.35; }
+
+  .edge.on { stroke: var(--ink); stroke-width: 2; }
+  .node.on .dot { stroke-width: 1.8; }
+  .node.on .label { opacity: 1; }
+
   /* ---- compact ---- */
   #graph.compact .dendrites { display: none; }
   #graph.compact .label { font-size: 11px; letter-spacing: 0.09em; }
-  #graph.compact .core-label { font-size: 11px; letter-spacing: 0.08em; }
+  #graph.compact .hub-label { font-size: 11px; letter-spacing: 0.08em; }
 </style>
 </head>
 <body>
@@ -209,40 +233,53 @@ function layout() {
   for (const n of nodes) {
     n.x = cx + Math.cos(n.angle) * R * n.rScale;
     n.y = cy + Math.sin(n.angle) * R * n.rScale;
+    n.px = n.x;
+    n.py = n.y;
   }
   svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
   svg.classList.toggle("compact", compact);
 }
 
-/* Quadratic bezier from centre to node, bowed sideways so it reads organic. */
+/* Quadratic bezier from centre to node, bowed sideways so it reads organic.
+   Caches the control point so pulses can ride the same curve. */
 function edgePath(n) {
-  const dx = n.x - cx, dy = n.y - cy;
+  const dx = n.px - cx, dy = n.py - cy;
   const dist = Math.hypot(dx, dy) || 1;
-  const mx = cx + dx / 2, my = cy + dy / 2;
   const off = dist * n.bow;
-  const qx = mx + (-dy / dist) * off;
-  const qy = my + (dx / dist) * off;
-  n.ctrl = { x: qx, y: qy };
-  return `M${cx.toFixed(1)},${cy.toFixed(1)} Q${qx.toFixed(1)},${qy.toFixed(1)} ${n.x.toFixed(1)},${n.y.toFixed(1)}`;
+  const qx = cx + dx / 2 + (-dy / dist) * off;
+  const qy = cy + dy / 2 + (dx / dist) * off;
+  n.qx = qx;
+  n.qy = qy;
+  return `M${cx.toFixed(1)},${cy.toFixed(1)} Q${qx.toFixed(1)},${qy.toFixed(1)} ${n.px.toFixed(1)},${n.py.toFixed(1)}`;
 }
 
+let hub, hubDot;
+
 function build() {
-  const core = el("g", { class: "core" });
-  core.appendChild(el("circle", { class: "core-dot", r: coreR }));
-  const cl = el("text", { class: "core-label" });
-  cl.textContent = "Youss";
-  core.appendChild(cl);
-  gNodes.appendChild(core);
-  svg.core = core;
+  hub = el("g", { class: "hub", "aria-hidden": "true" });
+  hubDot = el("circle", { class: "hub-dot", r: coreR });
+  hub.appendChild(hubDot);
+  const hl = el("text", { class: "hub-label" });
+  hl.textContent = "Youss";
+  hub.appendChild(hl);
+  gNodes.appendChild(hub);
 
   for (const n of nodes) {
     n.edge = el("path", { class: "edge" + (n.p.kind === "soon" ? " dashed" : "") });
     gEdges.appendChild(n.edge);
 
-    const g = el("g", { class: "node " + n.p.kind });
+    const g = el("g", {
+      class: "node " + n.p.kind,
+      tabindex: "0",
+      role: "button",
+      "aria-label": n.p.name
+    });
     const t = el("title");
     t.textContent = n.p.name;
     g.appendChild(t);
+
+    /* Everything inside .nucleus scales on hover; the label stays put. */
+    const nuc = el("g", { class: "nucleus" });
 
     /* Dendrites only ever render at full size, so pin them to that radius. */
     const dg = el("g", { class: "dendrites", "aria-hidden": "true" });
@@ -258,10 +295,17 @@ function build() {
       }));
       dg.appendChild(el("circle", { class: "dend-tip", cx: x1.toFixed(1), cy: y1.toFixed(1), r: 2 }));
     }
-    g.appendChild(dg);
+    nuc.appendChild(dg);
 
+    n.ring = el("circle", { class: "ring", r: nodeR + 7 });
     n.dot = el("circle", { class: "dot", r: nodeR });
-    g.appendChild(n.dot);
+    nuc.appendChild(n.ring);
+    nuc.appendChild(n.dot);
+    n.nuc = nuc;
+    g.appendChild(nuc);
+
+    n.hit = el("circle", { class: "hit", r: nodeR + 14 });
+    g.appendChild(n.hit);
 
     n.label = el("text", { class: "label" });
     n.label.appendChild(document.createTextNode(n.p.name));
@@ -273,18 +317,25 @@ function build() {
     g.appendChild(n.label);
 
     n.g = g;
+    n.scale = 1;
+    n.scaleTo = 1;
     gNodes.appendChild(g);
+
+    g.addEventListener("pointerenter", () => { hovered = n; refresh(); });
+    g.addEventListener("pointerleave", () => { if (hovered === n) hovered = null; refresh(); });
+    g.addEventListener("focus", () => { focused = n; refresh(); });
+    g.addEventListener("blur", () => { if (focused === n) focused = null; refresh(); });
   }
 }
 
 function place() {
-  svg.core.setAttribute("transform", `translate(${cx},${cy})`);
-  svg.core.querySelector(".core-dot").setAttribute("r", coreR);
+  hub.setAttribute("transform", `translate(${cx},${cy})`);
+  hubDot.setAttribute("r", coreR);
 
   for (const n of nodes) {
-    n.g.setAttribute("transform", `translate(${n.x.toFixed(1)},${n.y.toFixed(1)})`);
-    n.edge.setAttribute("d", edgePath(n));
     n.dot.setAttribute("r", nodeR);
+    n.ring.setAttribute("r", nodeR + 7);
+    n.hit.setAttribute("r", nodeR + 14);
 
     const c = Math.cos(n.angle), s = Math.sin(n.angle);
     if (compact) {
@@ -299,6 +350,56 @@ function place() {
       n.label.setAttribute("text-anchor", vertical ? "middle" : (c > 0 ? "start" : "end"));
     }
   }
+  paint();
+}
+
+/* ---- per-frame writes: positions, scales, edge curves ---- */
+
+function paint() {
+  for (const n of nodes) {
+    n.g.setAttribute("transform", `translate(${n.px.toFixed(1)},${n.py.toFixed(1)})`);
+    n.nuc.setAttribute("transform", `scale(${n.scale.toFixed(3)})`);
+    n.edge.setAttribute("d", edgePath(n));
+  }
+}
+
+/* Frame loop, suspended whenever nothing is actually moving. */
+let raf = 0, last = 0;
+function kick() { if (!raf) { last = 0; raf = requestAnimationFrame(tick); } }
+
+function tick(now) {
+  const dt = last ? Math.min(now - last, 64) : 16;
+  last = now;
+  let busy = false;
+
+  const ease = 1 - Math.exp(-dt / 55);   // ~180ms to settle
+  for (const n of nodes) {
+    if (Math.abs(n.scaleTo - n.scale) > 0.001) {
+      n.scale += (n.scaleTo - n.scale) * ease;
+      busy = true;
+    } else {
+      n.scale = n.scaleTo;
+    }
+  }
+
+  paint();
+  raf = busy ? requestAnimationFrame(tick) : 0;
+}
+
+/* ---- hover / focus ---- */
+
+let hovered = null, focused = null;
+
+function refresh() {
+  const active = focused || hovered;
+  svg.classList.toggle("sel", !!active);
+  for (const n of nodes) {
+    const on = n === active;
+    n.g.classList.toggle("on", on);
+    n.edge.classList.toggle("on", on);
+    n.scaleTo = on ? 1.1 : 1;
+  }
+  kick();
 }
 
 let resizeTimer;
