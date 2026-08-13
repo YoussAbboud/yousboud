@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Youss</title>
+<meta name="description" content="Downloads for Youss's projects.">
+<meta name="theme-color" content="#ffffff">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='7' fill='%23111111'/></svg>">
+<style>
+  :root {
+    --ink: #111111;
+    --edge: #d8d8d8;
+    --label: #262626;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #ffffff;
+    overflow: hidden;
+    font-family: var(--font);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #graph {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* ---- edges ---- */
+  .edge {
+    fill: none;
+    stroke: var(--edge);
+    stroke-width: 1.25;
+    stroke-linecap: round;
+  }
+  .edge.dashed { stroke-dasharray: 4 5; }
+
+  /* ---- center ---- */
+  .core-dot { fill: var(--ink); }
+  .core-label {
+    fill: #ffffff;
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    text-anchor: middle;
+    dominant-baseline: middle;
+  }
+
+  /* ---- project nodes ---- */
+  .node { outline: none; }
+  .node .dot {
+    fill: #ffffff;
+    stroke: var(--ink);
+    stroke-width: 1.5;
+  }
+  .node.soon .dot { stroke-dasharray: 3 3.5; }
+  .node.soon .dot,
+  .node.soon .dendrites { opacity: 0.5; }
+  .node.soon .label { opacity: 0.68; }   /* dimmed but still AA on white */
+
+  .label {
+    fill: var(--label);
+    font-size: 12.5px;
+    letter-spacing: 0.11em;
+    dominant-baseline: middle;
+    opacity: 0.8;
+  }
+  .label .tag {
+    font-size: 9.5px;
+    letter-spacing: 0.16em;
+  }
+
+  /* ---- dendrites ---- */
+  .dend {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 1;
+    stroke-linecap: round;
+    opacity: 0.3;
+  }
+  .dend-tip { fill: var(--ink); opacity: 0.3; }
+
+  /* ---- compact ---- */
+  #graph.compact .dendrites { display: none; }
+  #graph.compact .label { font-size: 11px; letter-spacing: 0.09em; }
+  #graph.compact .core-label { font-size: 11px; letter-spacing: 0.08em; }
+</style>
+</head>
+<body>
+
+<svg id="graph" role="group" aria-label="Youss — project map" xmlns="http://www.w3.org/2000/svg">
+  <g id="edges"></g>
+  <g id="nodes"></g>
+</svg>
+
+<script>
+/* Edit this array to add or update a project — nothing else needs to change.
+   For kind "exe", `url` must be a direct-download link; GitHub Releases asset
+   URLs are the intended source for the installers. */
+const PROJECTS = [
+  {
+    id: "debloat",
+    name: "Debloat",
+    tagline: "Strip Windows down to what you actually use.",
+    kind: "exe",              // "exe" | "web" | "soon"
+    version: "1.0.0",
+    size: "",                 // fill in later
+    url: "",                  // direct .exe download link
+    updated: ""
+  },
+  {
+    id: "coreview",
+    name: "CoreView",
+    tagline: "Live PC monitoring with 3D airflow visualization.",
+    kind: "exe",
+    version: "1.0.0",
+    size: "",
+    url: "",
+    updated: ""
+  },
+  {
+    id: "droply",
+    name: "Droply",
+    tagline: "Send photos and clipboard between your devices.",
+    kind: "web",
+    version: "",
+    size: "",
+    url: "",                  // https:// app URL
+    updated: ""
+  },
+  {
+    id: "forge",
+    name: "FORGE Benchmark",
+    tagline: "CPU and GPU scoring, plus stress testing.",
+    kind: "soon",
+    version: "",
+    size: "",
+    url: "",
+    updated: ""
+  }
+];
+
+/* ------------------------------------------------------------------ */
+
+const NS = "http://www.w3.org/2000/svg";
+const svg = document.getElementById("graph");
+const gEdges = document.getElementById("edges");
+const gNodes = document.getElementById("nodes");
+
+const el = (tag, attrs) => {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  return n;
+};
+
+/* Deterministic per-project randomness: same layout on every reload. */
+function seeded(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  let s = h >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* Fixed per-project traits (angle offset, bow direction, dendrites). */
+const nodes = PROJECTS.map((p, i) => {
+  const rnd = seeded(p.id);
+  const slice = (Math.PI * 2) / PROJECTS.length;
+  const angle = -Math.PI / 2 + 0.55 + i * slice + (rnd() - 0.5) * slice * 0.3;
+  const rScale = 0.88 + rnd() * 0.24;
+  const bow = (rnd() < 0.5 ? -1 : 1) * (0.1 + rnd() * 0.07);
+  const stubs = [];
+  const count = 2 + Math.floor(rnd() * 3);
+  for (let s = 0; s < count; s++) {
+    const side = s % 2 ? 1 : -1;
+    stubs.push({
+      a: side * (0.8 + rnd() * 1.5),   // radians off the outward direction
+      len: 11 + rnd() * 13,
+      curl: (rnd() - 0.5) * 0.9
+    });
+  }
+  return { p, angle, rScale, bow, stubs, x: 0, y: 0 };
+});
+
+const DEND_R = 18;
+let cx = 0, cy = 0, R = 0, nodeR = 18, coreR = 34, compact = false;
+
+function layout() {
+  const w = window.innerWidth, h = window.innerHeight;
+  compact = w < 640;
+  cx = w / 2;
+  cy = h / 2;
+  R = Math.max(96, Math.min(Math.min(w, h) * 0.30, 300));
+  nodeR = compact ? 13 : 18;
+  coreR = compact ? 26 : 34;
+  for (const n of nodes) {
+    n.x = cx + Math.cos(n.angle) * R * n.rScale;
+    n.y = cy + Math.sin(n.angle) * R * n.rScale;
+  }
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  svg.classList.toggle("compact", compact);
+}
+
+/* Quadratic bezier from centre to node, bowed sideways so it reads organic. */
+function edgePath(n) {
+  const dx = n.x - cx, dy = n.y - cy;
+  const dist = Math.hypot(dx, dy) || 1;
+  const mx = cx + dx / 2, my = cy + dy / 2;
+  const off = dist * n.bow;
+  const qx = mx + (-dy / dist) * off;
+  const qy = my + (dx / dist) * off;
+  n.ctrl = { x: qx, y: qy };
+  return `M${cx.toFixed(1)},${cy.toFixed(1)} Q${qx.toFixed(1)},${qy.toFixed(1)} ${n.x.toFixed(1)},${n.y.toFixed(1)}`;
+}
+
+function build() {
+  const core = el("g", { class: "core" });
+  core.appendChild(el("circle", { class: "core-dot", r: coreR }));
+  const cl = el("text", { class: "core-label" });
+  cl.textContent = "Youss";
+  core.appendChild(cl);
+  gNodes.appendChild(core);
+  svg.core = core;
+
+  for (const n of nodes) {
+    n.edge = el("path", { class: "edge" + (n.p.kind === "soon" ? " dashed" : "") });
+    gEdges.appendChild(n.edge);
+
+    const g = el("g", { class: "node " + n.p.kind });
+    const t = el("title");
+    t.textContent = n.p.name;
+    g.appendChild(t);
+
+    /* Dendrites only ever render at full size, so pin them to that radius. */
+    const dg = el("g", { class: "dendrites", "aria-hidden": "true" });
+    for (const s of n.stubs) {
+      const a = n.angle + s.a;
+      const x0 = Math.cos(a) * (DEND_R + 1), y0 = Math.sin(a) * (DEND_R + 1);
+      const x1 = Math.cos(a) * (DEND_R + s.len), y1 = Math.sin(a) * (DEND_R + s.len);
+      const qx = (x0 + x1) / 2 - (y1 - y0) * s.curl;
+      const qy = (y0 + y1) / 2 + (x1 - x0) * s.curl;
+      dg.appendChild(el("path", {
+        class: "dend",
+        d: `M${x0.toFixed(1)},${y0.toFixed(1)} Q${qx.toFixed(1)},${qy.toFixed(1)} ${x1.toFixed(1)},${y1.toFixed(1)}`
+      }));
+      dg.appendChild(el("circle", { class: "dend-tip", cx: x1.toFixed(1), cy: y1.toFixed(1), r: 2 }));
+    }
+    g.appendChild(dg);
+
+    n.dot = el("circle", { class: "dot", r: nodeR });
+    g.appendChild(n.dot);
+
+    n.label = el("text", { class: "label" });
+    n.label.appendChild(document.createTextNode(n.p.name));
+    if (n.p.kind === "soon") {
+      const tag = el("tspan", { class: "tag" });
+      tag.textContent = "  soon";
+      n.label.appendChild(tag);
+    }
+    g.appendChild(n.label);
+
+    n.g = g;
+    gNodes.appendChild(g);
+  }
+}
+
+function place() {
+  svg.core.setAttribute("transform", `translate(${cx},${cy})`);
+  svg.core.querySelector(".core-dot").setAttribute("r", coreR);
+
+  for (const n of nodes) {
+    n.g.setAttribute("transform", `translate(${n.x.toFixed(1)},${n.y.toFixed(1)})`);
+    n.edge.setAttribute("d", edgePath(n));
+    n.dot.setAttribute("r", nodeR);
+
+    const c = Math.cos(n.angle), s = Math.sin(n.angle);
+    if (compact) {
+      n.label.setAttribute("x", 0);
+      n.label.setAttribute("y", nodeR + 15);
+      n.label.setAttribute("text-anchor", "middle");
+    } else {
+      const vertical = Math.abs(c) < 0.35;
+      const pad = nodeR + (vertical ? 20 : 14);
+      n.label.setAttribute("x", (c * pad).toFixed(1));
+      n.label.setAttribute("y", (s * pad).toFixed(1));
+      n.label.setAttribute("text-anchor", vertical ? "middle" : (c > 0 ? "start" : "end"));
+    }
+  }
+}
+
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { layout(); place(); }, 120);
+});
+
+layout();
+build();
+place();
+</script>
+</body>
+</html>
